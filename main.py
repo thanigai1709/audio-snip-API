@@ -8,9 +8,10 @@ from typing import Union
 app = FastAPI(title="Audio Snip API 1.0")
 s3 = boto3.client(
     's3', 
-    aws_access_key_id='AKIATII4OHXK7VWTXJH5',
-    aws_secret_access_key='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'
+    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
 )
+
 BUCKET = 'audio-snip'
 
 class Range(BaseModel):
@@ -20,8 +21,7 @@ class Range(BaseModel):
 class Config(BaseModel):
     amplitude:Union[int,float]
     crop:Range
-
-
+    
 
 @app.get('/')
 def Welcome():
