@@ -8,6 +8,7 @@ import tempfile
 import pathlib
 from enum import Enum
 
+
 app = FastAPI(title="Audio Snip API 1.0")
 s3 = boto3.client(
     's3', 
@@ -20,6 +21,11 @@ BUCKET = 'audio-snip'
 class DBMode(str,Enum):
     lose="lose"
     gain="gain"
+
+class SupportedFormats(str,Enum):
+    mp3="mp3"
+    wav="wav"
+    flac="flac"
 
 class Db(BaseModel):
     value:Union[int,float]
@@ -34,7 +40,13 @@ class Config(BaseModel):
     file_key:str
     amplitude:Union[Db,None] = None
     crop:CropRange
-    output_format:str
+    output_format:SupportedFormats
+
+def modify_speed(audio:AudioSegment,speed:int):
+    modified_audio = audio._spawn(audio.raw_data,overrides={
+        "frame_rate":int(audio.frame_rate*speed)
+    })
+    return modified_audio.set_frame_rate(41000)
 
 
 @app.get('/')
@@ -72,6 +84,7 @@ def edit_audio(config:Config):
                     processed_audio = processed_audio + config.amplitude.value
                 if config.amplitude.mode == 'lose':
                     processed_audio = processed_audio - config.amplitude.value
+            # processed_audio = modify_speed(processed_audio,0.75)
             processed_audio.export(new_file_name, format=config.output_format)
             s3.upload_file(new_file_name,BUCKET,destination_path)
     except Exception as err:
