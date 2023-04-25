@@ -4,6 +4,9 @@ import boto3
 import os
 from pydantic import BaseModel
 from typing import Union
+import tempfile
+import pathlib
+from enum import Enum
 
 app = FastAPI(title="Audio Snip API 1.0")
 s3 = boto3.client(
@@ -14,14 +17,25 @@ s3 = boto3.client(
 
 BUCKET = 'audio-snip'
 
-class Range(BaseModel):
+class DBMode(str,Enum):
+    lose="lose"
+    gain="gain"
+
+class Db(BaseModel):
+    value:Union[int,float]
+    mode:DBMode
+
+class CropRange(BaseModel):
     start:int
     end:int
 
 class Config(BaseModel):
-    amplitude:Union[int,float]
-    crop:Range
-    
+    file_name:str
+    file_key:str
+    amplitude:Union[Db,None] = None
+    crop:CropRange
+    output_format:str
+
 
 @app.get('/')
 def Welcome():
@@ -40,12 +54,32 @@ def upload_file(audio:UploadFile = File(...)):
 @app.post('/edit-audio')
 def edit_audio(config:Config):
     try:
-        file_name = 'Chola-Chola-MassTamilan.dev.mp3'
-        file_key = 'uploads/Chola-Chola-MassTamilan.dev.mp3'
+        file_name = config.file_name
+        file_key = config.file_key
+        original_file_format:str = pathlib.Path(file_name).suffix.replace('.','')
         s3.download_file(BUCKET,file_key,file_name)
-        audio = AudioSegment.from_file(file_name,format='mp3')
+        audio = AudioSegment.from_file(file_name,format=original_file_format)
+        processed_audio = audio[config.crop.start:config.crop.end]
+        destination_path = ''
+        url_path = ''
+        with tempfile.NamedTemporaryFile(suffix=f'.{config.output_format}') as temp_file:
+            new_file_name = f'{file_name}-edited.{config.output_format}'
+            destination_path = f'processed/{new_file_name}'
+            url_path = f'https://{BUCKET}.s3.amazonaws.com/{destination_path}'
+            print(config.amplitude,"priting applitude")
+            if config.amplitude:
+                if config.amplitude.mode == 'gain':
+                    processed_audio = processed_audio + config.amplitude.value
+                if config.amplitude.mode == 'lose':
+                    processed_audio = processed_audio - config.amplitude.value
+            processed_audio.export(new_file_name, format=config.output_format)
+            s3.upload_file(new_file_name,BUCKET,destination_path)
     except Exception as err:
         raise HTTPException(status_code=500,detail=str(err))
     finally:
-        os.remove(file_name)
-    return {"status":True,"audio":len(audio)}
+        if(os.path.exists(file_name)):
+            os.remove(file_name)
+        if(os.path.exists(new_file_name)):
+            os.remove(new_file_name)
+    return {"status":True,"url":url_path,"key":destination_path,"file_name":new_file_name}
+
