@@ -1,19 +1,30 @@
 from fastapi import FastAPI,HTTPException,UploadFile,File
 from pydub import AudioSegment
 import boto3
+from botocore.config import Config
 import os
 from pydantic import BaseModel
 from typing import Union
 import tempfile
 import pathlib
 from enum import Enum
-
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Audio Snip API 1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=['*'],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+config = Config(s3={"use_accelerate_endpoint": True})
 s3 = boto3.client(
     's3', 
     aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
+    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+    config=config
 )
 
 BUCKET = 'audio-snip'
@@ -71,7 +82,10 @@ def edit_audio(config:Config):
         original_file_format:str = pathlib.Path(file_name).suffix.replace('.','')
         s3.download_file(BUCKET,file_key,file_name)
         audio = AudioSegment.from_file(file_name,format=original_file_format)
-        processed_audio = audio[config.crop.start:config.crop.end]
+        if config.crop.start and config.crop.end:
+            processed_audio = audio[config.crop.start:config.crop.end]
+        else:
+            processed_audio = audio[config.crop.start:config.crop.end]  
         destination_path = ''
         url_path = ''
         with tempfile.NamedTemporaryFile(suffix=f'.{config.output_format}') as temp_file:
